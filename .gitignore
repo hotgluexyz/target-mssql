@@ -140,3 +140,4 @@ dmypy.json
 .devcontainer/
 plugins/
 config.json
+poetry.lock

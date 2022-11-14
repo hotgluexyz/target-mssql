@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-from singer_sdk.sinks import SQLSink
-from typing import Any, Optional, List, Dict, Iterable
+from typing import Any, Dict, Iterable, List, Optional
 
 import sqlalchemy
-from sqlalchemy import Table, MetaData, exc, types, insert, Column
-from sqlalchemy.dialects import mssql
+from singer_sdk.sinks import SQLSink
+from sqlalchemy import Column
 
 from target_mssql.connector import mssqlConnector
 
@@ -27,24 +26,47 @@ class mssqlSink(SQLSink):
         """
         return self._connector
 
-
     @property
     def schema_name(self) -> Optional[str]:
         """Return the schema name or `None` if using names with no schema part.
+
         Returns:
             The target schema name.
         """
 
-        # return 'dbo'
-        # parts = self.stream_name.split("-")
-        # if len(parts) in {2, 3}:
-        #     # Stream name is a two-part or three-part identifier.
-        #     # Use the second-to-last part as the schema name.
-        #     return self.conform_name(parts[-2], "schema")
+        default_target_schema = self.config.get("default_target_schema", None)
+        parts = self.stream_name.split("-")
 
-        # # Schema name not detected.
+        if default_target_schema:
+            return default_target_schema
+
+        if len(parts) in {2, 3}:
+            # Stream name is a two-part or three-part identifier.
+            # Use the second-to-last part as the schema name.
+            stream_schema = self.conform_name(parts[-2], "schema")
+
+            if stream_schema == "public":
+                return "dbo"
+            else:
+                return stream_schema
+
+        # Schema name not detected.
         return None
 
+    def preprocess_record(self, record: dict, context: dict) -> dict:
+        """Process incoming record and return a modified result.
+        Args:
+            record: Individual record in the stream.
+            context: Stream partition or context dictionary.
+        Returns:
+            A new, processed record.
+        """
+        keys = record.keys()
+        for key in keys:
+            if type(record[key]) is list:
+                record[key] = str(record[key])
+
+        return record
 
     def bulk_insert_records(
         self,
@@ -91,13 +113,10 @@ class mssqlSink(SQLSink):
         if self.key_properties:
             self.connection.execute(f"SET IDENTITY_INSERT { full_table_name } OFF")
 
-
         if isinstance(records, list):
             return len(records)  # If list, we can quickly return record count.
 
         return None  # Unknown record count.
-
-
 
     def column_representation(
         self,
@@ -160,7 +179,6 @@ class mssqlSink(SQLSink):
                 records=context["records"],
             )
 
-
     def merge_upsert_from_table(
         self,
         from_table_name: str,
@@ -185,13 +203,21 @@ class mssqlSink(SQLSink):
             [f"temp.{key} = target.{key}" for key in join_keys]
         )
 
+        update_stmt = ", ".join(
+            [
+                f"target.{key} = temp.{key}"
+                for key in schema["properties"].keys()
+                if key not in join_keys
+            ]
+        )  # noqa
+
         merge_sql = f"""
             MERGE INTO {to_table_name} AS target
             USING {from_table_name} AS temp
             ON {join_condition}
             WHEN MATCHED THEN
                 UPDATE SET
-                    {", ".join([f"target.{key} = temp.{key}" for key in schema["properties"].keys() if key not in join_keys])}
+                    { update_stmt }
             WHEN NOT MATCHED THEN
                 INSERT ({", ".join(schema["properties"].keys())})
                 VALUES ({", ".join([f"temp.{key}" for key in schema["properties"].keys()])});
@@ -201,8 +227,8 @@ class mssqlSink(SQLSink):
             self.connection.execute(f"SET IDENTITY_INSERT { to_table_name } ON")
 
         self.connection.execute(merge_sql)
-        
+
         if self.key_properties:
             self.connection.execute(f"SET IDENTITY_INSERT { to_table_name } OFF")
 
-        self.connection.execute(f"COMMIT")
+        self.connection.execute("COMMIT")

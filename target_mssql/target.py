@@ -2,12 +2,10 @@
 
 from __future__ import annotations
 
-from singer_sdk.target_base import SQLTarget
 from singer_sdk import typing as th
+from singer_sdk.target_base import SQLTarget
 
-from target_mssql.sinks import (
-    mssqlSink,
-)
+from target_mssql.sinks import mssqlSink
 
 
 class Targetmssql(SQLTarget):

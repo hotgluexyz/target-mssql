@@ -25,3 +25,7 @@ plugins:
       kind: password
     - name: start_date
       value: '2010-01-01T00:00:00Z'
+    - name: host
+    - name: port
+    - name: database
+    - name: default_target_schema

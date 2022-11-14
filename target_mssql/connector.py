@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from singer_sdk.sinks import SQLSink, SQLConnector
-from sqlalchemy.dialects import mssql
-from typing import Any, Generic, Mapping, TypeVar, Union, cast
-from singer_sdk.helpers._typing import (
-    get_datelike_property_type
-)
+from typing import Any, Dict, Iterable, List, Optional, cast
+
 import sqlalchemy
+from singer_sdk.helpers._typing import get_datelike_property_type
+from singer_sdk.sinks import SQLConnector
+from sqlalchemy.dialects import mssql
+
 
 class mssqlConnector(SQLConnector):
     """The connector for mssql.
@@ -19,7 +19,6 @@ class mssqlConnector(SQLConnector):
     allow_column_alter: bool = True  # Whether altering column types is supported.
     allow_merge_upsert: bool = True  # Whether MERGE UPSERT is supported.
     allow_temp_tables: bool = True  # Whether temp tables are supported.
- 
 
     def create_table_with_records(
         self,
@@ -53,26 +52,22 @@ class mssqlConnector(SQLConnector):
             full_table_name=full_table_name, schema=schema, records=records
         )
 
-
     def get_sqlalchemy_url(self, config: dict) -> str:
         """Generates a SQLAlchemy URL for mssql.
 
         Args:
             config: The configuration for the connector.
         """
-        #return f"mssql+pyodbc://{config['user']}:{config['password']}@{config['host']}:{config['port']}/{config['database']}?driver=ODBC+Driver+17+for+SQL+Server"
 
-        connection_url = sqlalchemy.engine.url.URL(
+        connection_url = sqlalchemy.engine.url.URL.create(
             drivername="mssql+pymssql",
             username=config["user"],
             password=config["password"],
             host=config["host"],
             port=config["port"],
-            database=config["database"]
+            database=config["database"],
         )
         return str(connection_url)
-        # return f"mssql+pymssql://{config['user']}:{config['password']}@{config['host']}:{config['port']}/{config['database']}"
-
 
     def create_empty_table(
         self,
@@ -127,9 +122,9 @@ class mssqlConnector(SQLConnector):
         _ = sqlalchemy.Table(full_table_name, meta, *columns)
         meta.create_all(self._engine)
 
-    def merge_sql_types(
+    def merge_sql_types(  # noqa
         self, sql_types: list[sqlalchemy.types.TypeEngine]
-    ) -> sqlalchemy.types.TypeEngine:
+    ) -> sqlalchemy.types.TypeEngine:  # noqa
         """Return a compatible SQL type for the selected type list.
         Args:
             sql_types: List of SQL types.
@@ -178,14 +173,22 @@ class mssqlConnector(SQLConnector):
                     (sqlalchemy.types.String, sqlalchemy.types.Unicode),
                 ):
                     # If length None or 0 then is varchar max ?
-                    if (opt_len is None) or (opt_len == 0) or (opt_len >= current_type.length):
+                    if (
+                        (opt_len is None)
+                        or (opt_len == 0)
+                        or (opt_len >= current_type.length)
+                    ):
                         return opt
                 elif isinstance(
                     generic_type,
                     (sqlalchemy.types.String, sqlalchemy.types.Unicode),
                 ):
                     # If length None or 0 then is varchar max ?
-                    if (opt_len is None) or (opt_len == 0) or (opt_len >= current_type.length):
+                    if (
+                        (opt_len is None)
+                        or (opt_len == 0)
+                        or (opt_len >= current_type.length)
+                    ):
                         return opt
                 # If best conversion class is equal to current type
                 # return the best conversion class
@@ -195,7 +198,6 @@ class mssqlConnector(SQLConnector):
         raise ValueError(
             f"Unable to merge sql types: {', '.join([str(t) for t in sql_types])}"
         )
-
 
     def _adapt_column_type(
         self,
@@ -225,7 +227,7 @@ class mssqlConnector(SQLConnector):
         # calling merge_sql_types for assistnace
         compatible_sql_type = self.merge_sql_types([current_type, sql_type])
 
-        if str(compatible_sql_type).split(' ')[0] == str(current_type).split(' ')[0]:
+        if str(compatible_sql_type).split(" ")[0] == str(current_type).split(" ")[0]:
             # Nothing to do
             return
 
@@ -237,7 +239,7 @@ class mssqlConnector(SQLConnector):
             )
         try:
             self.connection.execute(
-                f"""ALTER TABLE { str(full_table_name) } 
+                f"""ALTER TABLE { str(full_table_name) }
                 ALTER COLUMN { str(column_name) } { str(compatible_sql_type) }"""
             )
         except Exception as e:
@@ -256,7 +258,6 @@ class mssqlConnector(SQLConnector):
         #         },
         #     )
         # )
-
 
     def _create_empty_column(
         self,
@@ -284,7 +285,7 @@ class mssqlConnector(SQLConnector):
 
         try:
             self.connection.execute(
-                f"""ALTER TABLE { str(full_table_name) } 
+                f"""ALTER TABLE { str(full_table_name) }
                 ADD { str(create_column_clause) } """
             )
 
@@ -294,8 +295,9 @@ class mssqlConnector(SQLConnector):
                 f"on table '{full_table_name}'."
             ) from e
 
-
-    def _jsonschema_type_check(self, jsonschema_type: dict, type_check: tuple[str]) -> bool:
+    def _jsonschema_type_check(
+        self, jsonschema_type: dict, type_check: tuple[str]
+    ) -> bool:
         """Return True if the jsonschema_type supports the provided type.
         Args:
             jsonschema_type: The type dict.
@@ -317,9 +319,7 @@ class mssqlConnector(SQLConnector):
 
         return False
 
-
-
-    def to_sql_type(self, jsonschema_type: dict) -> sqlalchemy.types.TypeEngine:
+    def to_sql_type(self, jsonschema_type: dict) -> sqlalchemy.types.TypeEngine:  # noqa
         """Convert JSON Schema type to a SQL type.
         Args:
             jsonschema_type: The JSON Schema object.
@@ -330,14 +330,18 @@ class mssqlConnector(SQLConnector):
             datelike_type = get_datelike_property_type(jsonschema_type)
             if datelike_type:
                 if datelike_type == "date-time":
-                    return cast(sqlalchemy.types.TypeEngine, sqlalchemy.types.DATETIME())
+                    return cast(
+                        sqlalchemy.types.TypeEngine, sqlalchemy.types.DATETIME()
+                    )
                 if datelike_type in "time":
                     return cast(sqlalchemy.types.TypeEngine, sqlalchemy.types.TIME())
                 if datelike_type == "date":
                     return cast(sqlalchemy.types.TypeEngine, sqlalchemy.types.DATE())
 
             maxlength = jsonschema_type.get("maxLength")
-            return cast(sqlalchemy.types.TypeEngine, sqlalchemy.types.VARCHAR(maxlength))
+            return cast(
+                sqlalchemy.types.TypeEngine, sqlalchemy.types.VARCHAR(maxlength)
+            )
 
         if self._jsonschema_type_check(jsonschema_type, ("integer",)):
             return cast(sqlalchemy.types.TypeEngine, sqlalchemy.types.INTEGER())
@@ -354,7 +358,6 @@ class mssqlConnector(SQLConnector):
 
         return cast(sqlalchemy.types.TypeEngine, sqlalchemy.types.VARCHAR())
 
-
     def create_temp_table_from_table(self, from_table_name):
         """Temp table from another table."""
 
@@ -365,4 +368,3 @@ class mssqlConnector(SQLConnector):
         """
 
         self.connection.execute(ddl)
-
