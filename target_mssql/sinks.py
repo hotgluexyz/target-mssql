@@ -13,7 +13,7 @@ from target_mssql.connector import mssqlConnector
 
 class mssqlSink(SQLSink):
     """mssql target sink class."""
-    max_size = 1  # Max records to write in one batch
+    max_size = 1000  # Max records to write in one batch
 
     connector_class = mssqlConnector
 
