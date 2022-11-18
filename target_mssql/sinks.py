@@ -84,6 +84,7 @@ class mssqlSink(SQLSink):
         Returns:
             True if table exists, False if not, None if unsure or undetectable.
         """
+        schema = self.conform_schema(schema)
         insert_sql = self.generate_insert_statement(
             full_table_name,
             schema,
@@ -99,8 +100,8 @@ class mssqlSink(SQLSink):
         insert_records = []
         for record in records:
             insert_record = {}
-            for column in columns:
-                insert_record[column.name] = record.get(column.name)
+            for column, field in zip(columns, self.schema["properties"].keys()):
+                insert_record[column.name] = record.get(field)
             insert_records.append(insert_record)
 
         if self.key_properties:
@@ -145,7 +146,7 @@ class mssqlSink(SQLSink):
             self.logger.info(f"Preparing table {self.full_table_name}")
             self.connector.prepare_table(
                 full_table_name=self.full_table_name,
-                schema=self.schema,
+                schema=self.conform_schema(self.schema),
                 primary_keys=self.key_properties,
                 as_temp_table=False,
             )
@@ -158,7 +159,7 @@ class mssqlSink(SQLSink):
             self.logger.info("Inserting into temp table")
             self.bulk_insert_records(
                 full_table_name=f"#{self.full_table_name}",
-                schema=self.schema,
+                schema=self.conform_schema(self.schema),
                 records=context["records"],
             )
             # Merge data from Temp table to main table
@@ -166,14 +167,14 @@ class mssqlSink(SQLSink):
             self.merge_upsert_from_table(
                 from_table_name=f"#{self.full_table_name}",
                 to_table_name=f"{self.full_table_name}",
-                schema=self.schema,
+                schema=self.conform_schema(self.schema),
                 join_keys=self.key_properties,
             )
 
         else:
             self.bulk_insert_records(
                 full_table_name=self.full_table_name,
-                schema=self.schema,
+                schema=self.conform_schema(self.schema),
                 records=context["records"],
             )
 
@@ -196,6 +197,8 @@ class mssqlSink(SQLSink):
         """
         # TODO think about sql injeciton,
         # issue here https://github.com/MeltanoLabs/target-postgres/issues/22
+
+        schema = self.conform_schema(schema)
 
         join_condition = " and ".join(
             [f"temp.{key} = target.{key}" for key in join_keys]
