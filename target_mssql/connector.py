@@ -361,6 +361,12 @@ class mssqlConnector(SQLConnector):
     def create_temp_table_from_table(self, from_table_name):
         """Temp table from another table."""
 
+        try:
+            self.logger.info("Dropping existing temp table.")
+            self.connection.execute(f"DROP TABLE IF EXISTS #{from_table_name};")
+        except:
+            self.logger.info("No temp table to drop.")
+
         ddl = f"""
             SELECT TOP 0 *
             into #{from_table_name}
