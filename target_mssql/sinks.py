@@ -134,25 +134,25 @@ class mssqlSink(SQLSink):
             )
         return columns
     
-    def conform_schema(self, schema: dict) -> dict:
-        """Return schema dictionary with property names conformed.
+    # def conform_schema(self, schema: dict) -> dict:
+    #     """Return schema dictionary with property names conformed.
 
-        Args:
-            schema: JSON schema dictionary.
+    #     Args:
+    #         schema: JSON schema dictionary.
 
-        Returns:
-            A schema dictionary with the property names conformed.
-        """
-        conformed_schema = copy(schema)
-        conformed_property_names = {
-            key: self.conform_name(key) for key in conformed_schema["properties"].keys()
-        }
-        self._check_conformed_names_not_duplicated(conformed_property_names)
-        conformed_schema["properties"] = {
-            conformed_property_names[key]: value
-            for key, value in conformed_schema["properties"].items()
-        }
-        return conformed_schema
+    #     Returns:
+    #         A schema dictionary with the property names conformed.
+    #     """
+    #     conformed_schema = copy(schema)
+    #     conformed_property_names = {
+    #         key: self.conform_name(key) for key in conformed_schema["properties"].keys()
+    #     }
+    #     self._check_conformed_names_not_duplicated(conformed_property_names)
+    #     conformed_schema["properties"] = {
+    #         conformed_property_names[key]: value
+    #         for key, value in conformed_schema["properties"].items()
+    #     }
+    #     return conformed_schema
 
     def process_batch(self, context: dict) -> None:
         """Process a batch with the given batch context.
