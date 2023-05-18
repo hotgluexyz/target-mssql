@@ -249,12 +249,16 @@ class mssqlSink(SQLSink):
                 VALUES ({", ".join([f"temp.{key}" for key in schema["properties"].keys()])});
         """
 
-        if self.key_properties:
+        isnumeric = True
+        for prop in self.key_properties:
+            isnumeric = ("string" not in self.schema['properties'][prop]['type']) and isnumeric
+
+        if self.key_properties and isnumeric:
             self.connection.execute(f"SET IDENTITY_INSERT { to_table_name } ON")
 
         self.connection.execute(merge_sql)
 
-        if self.key_properties:
+        if self.key_properties and isnumeric:
             self.connection.execute(f"SET IDENTITY_INSERT { to_table_name } OFF")
 
         self.connection.execute("COMMIT")
