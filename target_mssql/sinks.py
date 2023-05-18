@@ -105,12 +105,16 @@ class mssqlSink(SQLSink):
                 insert_record[column.name] = record.get(field)
             insert_records.append(insert_record)
 
-        if self.key_properties:
-            self.connection.execute(f"SET IDENTITY_INSERT { full_table_name } ON")
+        isnumeric = True
+        for prop in self.key_properties:
+            isnumeric = ("string" not in self.schema['properties'][prop]['type']) and isnumeric
+
+        if self.key_properties and isnumeric:
+           self.connection.execute(f"SET IDENTITY_INSERT { full_table_name } ON")
 
         self.connection.execute(insert_sql, insert_records)
 
-        if self.key_properties:
+        if self.key_properties and isnumeric:
             self.connection.execute(f"SET IDENTITY_INSERT { full_table_name } OFF")
 
         if isinstance(records, list):
