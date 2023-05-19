@@ -67,6 +67,14 @@ class mssqlSink(SQLSink):
                 record[key] = str(record[key])
         return record
 
+    def check_string_key_properties(self):
+        isnumeric = True
+        if self.key_properties:
+            for prop in self.key_properties:
+                isnumeric = ("string" not in self.schema['properties'][prop]['type']) and isnumeric
+            
+        return self.key_properties and isnumeric
+
     def bulk_insert_records(
         self,
         full_table_name: str,
@@ -105,12 +113,14 @@ class mssqlSink(SQLSink):
                 insert_record[column.name] = record.get(field)
             insert_records.append(insert_record)
 
-        if self.key_properties:
-            self.connection.execute(f"SET IDENTITY_INSERT { full_table_name } ON")
+        
+
+        if self.check_string_key_properties():
+           self.connection.execute(f"SET IDENTITY_INSERT { full_table_name } ON")
 
         self.connection.execute(insert_sql, insert_records)
 
-        if self.key_properties:
+        if self.check_string_key_properties():
             self.connection.execute(f"SET IDENTITY_INSERT { full_table_name } OFF")
 
         if isinstance(records, list):
@@ -245,12 +255,14 @@ class mssqlSink(SQLSink):
                 VALUES ({", ".join([f"temp.{key}" for key in schema["properties"].keys()])});
         """
 
-        if self.key_properties:
+      
+
+        if self.check_string_key_properties():
             self.connection.execute(f"SET IDENTITY_INSERT { to_table_name } ON")
 
         self.connection.execute(merge_sql)
 
-        if self.key_properties:
+        if self.check_string_key_properties():
             self.connection.execute(f"SET IDENTITY_INSERT { to_table_name } OFF")
 
         self.connection.execute("COMMIT")
