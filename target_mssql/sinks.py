@@ -7,6 +7,8 @@ from copy import copy
 import sqlalchemy
 from singer_sdk.sinks import SQLSink
 from sqlalchemy import Column
+import re
+from singer_sdk.helpers._conformers import replace_leading_digit, snakecase
 
 from target_mssql.connector import mssqlConnector
 
@@ -70,8 +72,9 @@ class mssqlSink(SQLSink):
     def check_string_key_properties(self):
         isnumeric = True
         if self.key_properties:
+            schema = self.conform_schema(self.schema)
             for prop in self.key_properties:
-                isnumeric = ("string" not in self.schema['properties'][prop]['type']) and isnumeric
+                isnumeric = ("string" not in schema['properties'][prop]['type']) and isnumeric
             
         return self.key_properties and isnumeric
 
@@ -266,3 +269,20 @@ class mssqlSink(SQLSink):
             self.connection.execute(f"SET IDENTITY_INSERT { to_table_name } OFF")
 
         self.connection.execute("COMMIT")
+
+    def conform_name(self, name: str, object_type: Optional[str] = None) -> str:
+        """Conform a stream property name to one suitable for the target system.
+
+        Transforms names to snake case, applicable to most common DBMSs'.
+        Developers may override this method to apply custom transformations
+        to database/schema/table/column names.
+        """
+        # strip non-alphanumeric characters, keeping - . _ and spaces
+        name = re.sub(r"[^a-zA-Z0-9_\-\.\s]", "", name)
+        # convert to snakecase
+        if name.isupper():
+            name = name.lower()
+        else:
+            name = snakecase(name)
+        # replace leading digit
+        return replace_leading_digit(name)
