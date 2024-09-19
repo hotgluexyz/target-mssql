@@ -279,10 +279,12 @@ class mssqlSink(SQLSink):
         """
         # strip non-alphanumeric characters, keeping - . _ and spaces
         name = re.sub(r"[^a-zA-Z0-9_\-\.\s]", "", name)
+
         # convert to snakecase
         if name.isupper():
             name = name.lower()
-        else:
-            name = snakecase(name)
+
+        name = snakecase(name)
+
         # replace leading digit
         return replace_leading_digit(name)
