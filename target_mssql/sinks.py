@@ -19,7 +19,7 @@ class mssqlSink(SQLSink):
     """mssql target sink class."""
     connector_class = mssqlConnector
     dropped_tables = dict()
-    max_size = 1000
+    max_size = 10_000
 
     # Copied purely to help with type hints
     @property
