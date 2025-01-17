@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any, Dict, Iterable, List, Optional, cast
 
 import sqlalchemy
+import urllib.parse
 from singer_sdk.helpers._typing import get_datelike_property_type
 from singer_sdk.sinks import SQLConnector
 from sqlalchemy.dialects import mssql
@@ -19,6 +20,110 @@ class mssqlConnector(SQLConnector):
     allow_column_alter: bool = True  # Whether altering column types is supported.
     allow_merge_upsert: bool = True  # Whether MERGE UPSERT is supported.
     allow_temp_tables: bool = True  # Whether temp tables are supported.
+    dropped_tables = dict()
+
+
+    def create_sqlalchemy_connection(self) -> sqlalchemy.engine.Connection:
+        """Return a new SQLAlchemy connection using the provided config.
+
+        By default this will create using the sqlalchemy `stream_results=True` option
+        described here:
+
+        https://docs.sqlalchemy.org/en/14/core/connections.html#using-server-side-cursors-a-k-a-stream-results
+
+        Developers may override this method if their provider does not support
+        server side cursors (`stream_results`) or in order to use different
+        configurations options when creating the connection object.
+
+        Returns:
+            A newly created SQLAlchemy engine object.
+        """
+        return (
+            self.create_sqlalchemy_engine()
+            .connect()
+            .execution_options(stream_results=True, autocommit=False)
+        )
+
+    def create_sqlalchemy_engine(self) -> sqlalchemy.engine.Engine:
+        """Return a new SQLAlchemy engine using the provided config.
+
+        Developers can generally override just one of the following:
+        `sqlalchemy_engine`, sqlalchemy_url`.
+
+        Returns:
+            A newly created SQLAlchemy engine object.
+        """
+        engine = sqlalchemy.create_engine(
+            self.sqlalchemy_url, 
+            fast_executemany=True,
+            echo=False,
+            isolation_level=None)
+        
+        self.sqlalchemy_engine = engine
+
+        return engine
+
+    def table_exists(self, full_table_name: str) -> bool:
+        """Determine if the target table already exists.
+
+        Args:
+            full_table_name: the target table name.
+
+        Returns:
+            True if table exists, False if not, None if unsure or undetectable.
+        """
+        kwargs = dict()
+
+        if "." in full_table_name:
+            kwargs["schema"] = full_table_name.split(".")[0]
+            full_table_name = full_table_name.split(".")[1]
+
+        self.logger.info(f"Checking table exists: {full_table_name} kwrags={kwargs}")
+
+        return cast(
+            bool,
+            sqlalchemy.inspect(self.sqlalchemy_engine).has_table(full_table_name, **kwargs),
+        )
+
+    def prepare_table(
+        self,
+        full_table_name: str,
+        schema: dict,
+        primary_keys: list[str],
+        partition_keys: list[str] | None = None,
+        as_temp_table: bool = False,
+    ) -> None:
+        """Adapt target table to provided schema if possible.
+
+        Args:
+            full_table_name: the target table name.
+            schema: the JSON Schema for the table.
+            primary_keys: list of key properties.
+            partition_keys: list of partition keys.
+            as_temp_table: True to create a temp table.
+        """
+        # NOTE: Force create the table
+        # TODO: remove this
+        if not self.dropped_tables.get(full_table_name, False):
+            self.logger.info(f"Force dropping the table {full_table_name}!")
+            with self.connection.begin():  # Starts a transaction
+                self.connection.execute(f"DROP TABLE IF EXISTS {full_table_name};")
+            self.dropped_tables[full_table_name] = True
+
+        if not self.table_exists(full_table_name=full_table_name):
+            self.create_empty_table(
+                full_table_name=full_table_name,
+                schema=schema,
+                primary_keys=primary_keys,
+                partition_keys=partition_keys,
+                as_temp_table=as_temp_table,
+            )
+            return
+
+        # for property_name, property_def in schema["properties"].items():
+        #     self.prepare_column(
+        #         full_table_name, property_name, self.to_sql_type(property_def)
+        #     )
 
     def create_table_with_records(
         self,
@@ -42,6 +147,7 @@ class mssqlConnector(SQLConnector):
         if primary_keys is None:
             primary_keys = self.key_properties
         partition_keys = partition_keys or None
+
         self.connector.prepare_table(
             full_table_name=full_table_name,
             primary_keys=primary_keys,
@@ -60,13 +166,19 @@ class mssqlConnector(SQLConnector):
         """
 
         connection_url = sqlalchemy.engine.url.URL.create(
-            drivername="mssql+pymssql",
-            username=config["user"],
-            password=config["password"],
+            drivername="mssql+pyodbc",
+            username=config['user'],
+            password=urllib.parse.quote_plus(config["password"]),
             host=config["host"],
             port=config["port"],
             database=config["database"],
+            query={
+                "driver": "ODBC Driver 17 for SQL Server",  # Use Microsoft's ODBC driver
+                "Encrypt": "yes",  # Ensures SSL encryption for Azure SQL
+                "TrustServerCertificate": "yes",  # Prevents bypassing certificate validation
+            }
         )
+
         return str(connection_url)
 
     def create_empty_table(
@@ -119,8 +231,15 @@ class mssqlConnector(SQLConnector):
                 )
             )
 
-        _ = sqlalchemy.Table(full_table_name, meta, *columns)
+        kwargs = dict()
+
+        if "." in full_table_name:
+            kwargs["schema"] = full_table_name.split(".")[0]
+            full_table_name = full_table_name.split(".")[1]
+
+        _ = sqlalchemy.Table(full_table_name, meta, *columns, **kwargs)
         meta.create_all(self._engine)
+        self.logger.info(f"Create table with cols = {columns}")
 
     def merge_sql_types(  # noqa
         self, sql_types: list[sqlalchemy.types.TypeEngine]
@@ -176,6 +295,7 @@ class mssqlConnector(SQLConnector):
                     if (
                         (opt_len is None)
                         or (opt_len == 0)
+                        or (current_type.length is None)
                         or (opt_len >= current_type.length)
                     ):
                         return opt
@@ -187,6 +307,7 @@ class mssqlConnector(SQLConnector):
                     if (
                         (opt_len is None)
                         or (opt_len == 0)
+                        or (current_type.length is None)
                         or (opt_len >= current_type.length)
                     ):
                         return opt
@@ -344,7 +465,7 @@ class mssqlConnector(SQLConnector):
             )
 
         if self._jsonschema_type_check(jsonschema_type, ("integer",)):
-            return cast(sqlalchemy.types.TypeEngine, sqlalchemy.types.INTEGER())
+            return cast(sqlalchemy.types.TypeEngine, sqlalchemy.types.BIGINT())
         if self._jsonschema_type_check(jsonschema_type, ("number",)):
             return cast(sqlalchemy.types.TypeEngine, sqlalchemy.types.NUMERIC(29, 16))
         if self._jsonschema_type_check(jsonschema_type, ("boolean",)):
@@ -358,19 +479,69 @@ class mssqlConnector(SQLConnector):
 
         return cast(sqlalchemy.types.TypeEngine, sqlalchemy.types.VARCHAR())
 
-    def create_temp_table_from_table(self, from_table_name):
-        """Temp table from another table."""
+    def drop_temp_table_from_table(self, from_table_name):
+        """Drop the temp table from an existing table, preserving identity columns and default values."""
 
         try:
-            self.logger.info("Dropping existing temp table.")
-            self.connection.execute(f"DROP TABLE IF EXISTS #{from_table_name};")
-        except:
-            self.logger.info("No temp table to drop.")
+            self.logger.info(f"Dropping existing temp table TMP_{from_table_name.split('.')[-1]}")
+            self.connection.execute(f"DROP TABLE IF EXISTS TMP_{from_table_name.split('.')[-1]};")
+        except Exception as e:
+            self.logger.info(f"No temp table to drop. Error: {e}")
 
-        ddl = f"""
-            SELECT TOP 0 *
-            into #{from_table_name}
-            FROM {from_table_name}
+    def create_temp_table_from_table(self, from_table_name):
+        """Create a temp table from an existing table, preserving identity columns and default values."""
+
+        try:
+            self.logger.info(f"Dropping existing temp table TMP_{from_table_name.split('.')[-1]}")
+            self.connection.execute(f"DROP TABLE IF EXISTS TMP_{from_table_name.split('.')[-1]};")
+        except Exception as e:
+            self.logger.info(f"No temp table to drop. Error: {e}")
+
+        # Query to get column definitions, including identity property
+        get_columns_query = f"""
+            SELECT 
+                c.name AS COLUMN_NAME,
+                t.name AS DATA_TYPE,
+                c.max_length AS COLUMN_LENGTH,
+                c.precision AS PRECISION_VALUE,
+                c.scale AS SCALE_VALUE,
+                d.definition AS COLUMN_DEFAULT,
+                COLUMNPROPERTY(c.object_id, c.name, 'IsIdentity') AS IS_IDENTITY
+            FROM sys.columns c
+            JOIN sys.types t ON c.user_type_id = t.user_type_id
+            LEFT JOIN sys.default_constraints d ON c.default_object_id = d.object_id
+            WHERE c.object_id = OBJECT_ID('{from_table_name}')
         """
 
-        self.connection.execute(ddl)
+        columns = self.connection.execute(get_columns_query).fetchall()
+        # self.logger.info(f"Fetched columns: {columns}")
+
+        # Construct the CREATE TABLE statement
+        column_definitions = []
+        for col in columns:
+            col_name = col[0]
+            col_type = col[1]
+            col_length = col[2]
+            precision_value = col[3]
+            scale_value = col[4]
+            col_default = f"DEFAULT {col[5]}" if col[5] else ""
+            is_identity = col[6]
+
+            identity_str = "IDENTITY(1,1)" if is_identity else ""
+
+            # Apply length only if it's a varchar/nvarchar type
+            if col_type.lower() in ["varchar", "nvarchar"]:
+                col_length_str = "(MAX)" if col_length == -1 else f"({col_length})"
+            else:
+                col_length_str = ""
+
+            column_definitions.append(f"[{col_name}] {col_type}{col_length_str} {identity_str} {col_default}")
+
+        create_temp_table_sql = f"""
+            CREATE TABLE TMP_{from_table_name.split(".")[-1]} (
+                {", ".join(column_definitions)}
+            );
+        """
+
+        # self.logger.info(f"Generated SQL for temp table:\n{create_temp_table_sql}")
+        self.connection.execute(create_temp_table_sql)
