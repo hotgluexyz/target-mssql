@@ -218,7 +218,7 @@ class mssqlSink(SQLSink):
         for key in conformed_schema["properties"].keys():
             conformed_name = self.conform_name(key)
             if conformed_name in duplicates:
-                hash = hashlib.md5(key.encode()).hexdigest()
+                hash = self.hash_name(key)
                 new_key = f"{conformed_name}_{hash}"
                 columns[new_key] = new_key
                 if self.schema and self.schema.get("properties"):
@@ -463,15 +463,8 @@ class mssqlSink(SQLSink):
             if value.get("type") == "string" or set(value.get("type")) == {"string", "null"}:
                 self.connection.execute(f"ALTER TABLE {full_table_name} ALTER COLUMN {key} VARCHAR(MAX);")
     
-    def deduplicate_columns(self, columns):
-        duplicates = [item for item, count in collections.Counter(columns.values()).items() if count > 1]
-        
-        for key,value in columns.items():
-            if value in duplicates:
-                hash = hashlib.md5(key.encode()).hexdigest()
-                columns[key] = f"{value}_{hash}"
-        
-        return columns
+    def hash_name(self, name):
+        return hashlib.md5(name.encode()).hexdigest()
 
     def conform_schema(self, schema: dict) -> dict:
         conformed_schema = copy(schema)
@@ -483,11 +476,9 @@ class mssqlSink(SQLSink):
         
         for key,value in conformed_property_names.items():
             if value in duplicates:
-                hash = hashlib.md5(key.encode()).hexdigest()
+                hash = self.hash_name(key)
                 new_name = f"{value}_{hash}"
                 conformed_property_names[key] = new_name
-
-        # conformed_property_names = self.deduplicate_columns(conformed_property_names)
 
         self._check_conformed_names_not_duplicated(conformed_property_names)
         conformed_schema["properties"] = {
