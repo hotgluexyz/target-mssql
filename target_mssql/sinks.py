@@ -211,29 +211,16 @@ class mssqlSink(SQLSink):
         conformed_names = [self.conform_name(key) for key in conformed_schema["properties"].keys()]
         duplicates = [item for item, count in collections.Counter(conformed_names).items() if count > 1]
 
-        add_to_schema = {}
-        remove_from_schema = set()
-
         columns = {}
         for key in conformed_schema["properties"].keys():
             conformed_name = self.conform_name(key)
             if conformed_name in duplicates:
                 hash = self.hash_name(key)
                 new_key = f"{conformed_name}_{hash}"
-                columns[new_key] = new_key
-                if self.schema and self.schema.get("properties"):
-                    if new_key not in self.schema["properties"]:
-                        property_type = self.schema["properties"].get(key)
-                        add_to_schema[new_key] = property_type
-                        remove_from_schema.add(key)
+                columns[new_key] = key
             else:
                 columns[conformed_name] = key
         
-        # add new field names to the schema with its corresponding type
-        self.schema["properties"].update(add_to_schema)
-        # remove properties which name has been changes
-        [self.schema["properties"].pop(name) for name in remove_from_schema]
-
         return columns
 
 
