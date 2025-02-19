@@ -17,6 +17,8 @@ from target_mssql.connector import mssqlConnector
 
 import pandas as pd
 import subprocess
+import collections
+import hashlib
 
 class mssqlSink(SQLSink):
     """mssql target sink class."""
@@ -206,9 +208,33 @@ class mssqlSink(SQLSink):
             a dict that maps conformed db col names to un-conformed column names.
         """
         conformed_schema = copy(schema)
-        return {
-            self.conform_name(key): key for key in conformed_schema["properties"].keys()
-        }
+        conformed_names = [self.conform_name(key) for key in conformed_schema["properties"].keys()]
+        duplicates = [item for item, count in collections.Counter(conformed_names).items() if count > 1]
+
+        add_to_schema = {}
+        remove_from_schema = set()
+
+        columns = {}
+        for key in conformed_schema["properties"].keys():
+            conformed_name = self.conform_name(key)
+            if conformed_name in duplicates:
+                hash = hashlib.md5(key.encode()).hexdigest()
+                new_key = f"{conformed_name}_{hash}"
+                columns[new_key] = new_key
+                if self.schema and self.schema.get("properties"):
+                    if new_key not in self.schema["properties"]:
+                        property_type = self.schema["properties"].get(key)
+                        add_to_schema[new_key] = property_type
+                        remove_from_schema.add(key)
+            else:
+                columns[conformed_name] = key
+        
+        # add new field names to the schema with its corresponding type
+        self.schema["properties"].update(add_to_schema)
+        # remove properties which name has been changes
+        [self.schema["properties"].pop(name) for name in remove_from_schema]
+
+        return columns
 
 
     def column_representation(
@@ -436,3 +462,36 @@ class mssqlSink(SQLSink):
                 continue
             if value.get("type") == "string" or set(value.get("type")) == {"string", "null"}:
                 self.connection.execute(f"ALTER TABLE {full_table_name} ALTER COLUMN {key} VARCHAR(MAX);")
+    
+    def deduplicate_columns(self, columns):
+        duplicates = [item for item, count in collections.Counter(columns.values()).items() if count > 1]
+        
+        for key,value in columns.items():
+            if value in duplicates:
+                hash = hashlib.md5(key.encode()).hexdigest()
+                columns[key] = f"{value}_{hash}"
+        
+        return columns
+
+    def conform_schema(self, schema: dict) -> dict:
+        conformed_schema = copy(schema)
+        conformed_property_names = {
+            key: self.conform_name(key) for key in conformed_schema["properties"].keys()
+        }
+
+        duplicates = [item for item, count in collections.Counter(conformed_property_names.values()).items() if count > 1]
+        
+        for key,value in conformed_property_names.items():
+            if value in duplicates:
+                hash = hashlib.md5(key.encode()).hexdigest()
+                new_name = f"{value}_{hash}"
+                conformed_property_names[key] = new_name
+
+        # conformed_property_names = self.deduplicate_columns(conformed_property_names)
+
+        self._check_conformed_names_not_duplicated(conformed_property_names)
+        conformed_schema["properties"] = {
+            conformed_property_names[key]: value
+            for key, value in conformed_schema["properties"].items()
+        }
+        return conformed_schema
