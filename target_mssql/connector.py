@@ -35,7 +35,7 @@ class mssqlConnector(SQLConnector):
             self.sqlalchemy_url,
             echo=False,
             pool_pre_ping=True,
-            pool_recycle=3600
+            pool_recycle=1800
         )
 
         return engine
@@ -229,6 +229,9 @@ class mssqlConnector(SQLConnector):
                 "driver": "ODBC Driver 17 for SQL Server",  # Use Microsoft's ODBC driver
                 "Encrypt": "yes",  # Ensures SSL encryption for Azure SQL
                 "TrustServerCertificate": "yes",  # Prevents bypassing certificate validation
+                "MARS_Connection": "Yes",
+                "ConnectRetryCount": "3",
+                "ConnectRetryInterval": "15"
             }
         )
 
