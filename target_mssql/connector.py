@@ -8,6 +8,7 @@ from singer_sdk.helpers._typing import get_datelike_property_type
 from singer_sdk.sinks import SQLConnector
 from sqlalchemy.dialects import mssql
 from target_mssql.metadata import write_event
+from sqlalchemy import text
 
 
 class mssqlConnector(SQLConnector):
@@ -22,6 +23,21 @@ class mssqlConnector(SQLConnector):
     allow_merge_upsert: bool = True  # Whether MERGE UPSERT is supported.
     allow_temp_tables: bool = True  # Whether temp tables are supported.
     dropped_tables = dict()
+
+    def get_connection(self):
+        """ Checks if current SQLAlchemy connection object is valid and returns the connection object.
+
+        Returns:
+            The active SQLAlchemy connection object.
+        """
+        connection = self.connection
+
+        try:
+            connection.execute(text("SELECT 1"))
+        except:
+            connection = self.create_sqlalchemy_connection()
+
+        return connection
 
 
     def create_sqlalchemy_engine(self) -> sqlalchemy.engine.Engine:
@@ -88,13 +104,13 @@ class mssqlConnector(SQLConnector):
           AND TABLE_NAME = '{table_name}'
           AND COLUMN_NAME = '{column_name}'
         """
-        result = self.connection.execute(column_exists_query).scalar()
+        result = self.get_connection().execute(column_exists_query).scalar()
 
         if result == 0:
             # Add the column if it does not exist
             alter_sql = f"ALTER TABLE {schema}.[{table_name}] ADD [{column_name}] {sql_type.compile(dialect=mssql.dialect())}"
-            with self.connection.begin():
-                self.connection.execute(alter_sql)
+            with self.get_connection().begin():
+                self.get_connection().execute(alter_sql)
             self.logger.info(f"Added column {column_name} to {full_table_name}.")
 
     from sqlalchemy import create_engine
@@ -117,8 +133,8 @@ class mssqlConnector(SQLConnector):
             ORDINAL_POSITION;
         """
 
-        with self.connection.begin():
-            result = self.connection.execute(query)
+        with self.get_connection().begin():
+            result = self.get_connection().execute(query)
 
             # Fetch all the results and return the column names in order
             column_order = [row['COLUMN_NAME'] for row in result]
@@ -422,7 +438,7 @@ class mssqlConnector(SQLConnector):
                 f"from '{current_type}' to '{compatible_sql_type}'."
             )
         try:
-            self.connection.execute(
+            self.get_connection().execute(
                 f"""ALTER TABLE { str(full_table_name) }
                 ALTER COLUMN { str(column_name) } { str(compatible_sql_type) }"""
             )
@@ -432,7 +448,7 @@ class mssqlConnector(SQLConnector):
                 f"from '{current_type}' to '{compatible_sql_type}'."
             ) from e
 
-        # self.connection.execute(
+        # self.get_connection().execute(
         #     sqlalchemy.DDL(
         #         "ALTER TABLE %(table)s ALTER COLUMN %(col_name)s %(col_type)s",
         #         {
@@ -468,7 +484,7 @@ class mssqlConnector(SQLConnector):
         )
 
         try:
-            self.connection.execute(
+            self.get_connection().execute(
                 f"""ALTER TABLE { str(full_table_name) }
                 ADD { str(create_column_clause) } """
             )
@@ -547,9 +563,9 @@ class mssqlConnector(SQLConnector):
 
         try:
             self.logger.info(f"Dropping existing temp table {temp_table}")
-            with self.connection.begin():  # Starts a transaction
+            with self.get_connection().begin():  # Starts a transaction
                 temp_table = '.'.join([f'[{x}]' for x in temp_table.split('.')])
-                self.connection.execute(f"DROP TABLE IF EXISTS {temp_table};")
+                self.get_connection().execute(f"DROP TABLE IF EXISTS {temp_table};")
         except Exception as e:
             self.logger.info(f"No temp table to drop. Error: {e}")
 
@@ -577,7 +593,7 @@ class mssqlConnector(SQLConnector):
             WHERE c.object_id = OBJECT_ID('{from_table_name}')
         """
 
-        columns = self.connection.execute(get_columns_query).fetchall()
+        columns = self.get_connection().execute(get_columns_query).fetchall()
         # self.logger.info(f"Fetched columns: {columns}")
 
         # Construct the CREATE TABLE statement
@@ -608,4 +624,4 @@ class mssqlConnector(SQLConnector):
         """
 
         # self.logger.info(f"Generated SQL for temp table:\n{create_temp_table_sql}")
-        self.connection.execute(create_temp_table_sql)
+        self.get_connection().execute(create_temp_table_sql)

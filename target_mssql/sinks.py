@@ -47,6 +47,15 @@ class mssqlSink(SQLSink):
         return self._connector
 
     @property
+    def connection(self) -> sqlalchemy.engine.Connection:
+        """Get or set the SQLAlchemy connection for this sink.
+
+        Returns:
+            A connection object.
+        """
+        return self.connector.get_connection()
+
+    @property
     def schema_name(self) -> Optional[str]:
         """Return the schema name or `None` if using names with no schema part.
 
