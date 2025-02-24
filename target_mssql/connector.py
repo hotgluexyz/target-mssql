@@ -30,14 +30,13 @@ class mssqlConnector(SQLConnector):
         Returns:
             The active SQLAlchemy connection object.
         """
-        connection = self.connection
 
         try:
-            connection.execute(text("SELECT 1"))
+            self.connection.execute(text("SELECT 1"))
         except:
-            connection = self.create_sqlalchemy_connection()
+            self._connection = self.create_sqlalchemy_connection()
 
-        return connection
+        return self.connection
 
 
     def create_sqlalchemy_engine(self) -> sqlalchemy.engine.Engine:
