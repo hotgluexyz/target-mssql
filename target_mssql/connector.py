@@ -295,7 +295,7 @@ class mssqlConnector(SQLConnector):
                     # In MSSQL, Primary keys can not be more than 900 bytes. Setting at 255
                     columntype = sqlalchemy.types.VARCHAR(255)
                 else:
-                    columntype = sqlalchemy.types.VARCHAR(5000) 
+                    columntype = sqlalchemy.types.VARCHAR("MAX") 
             elif isinstance(columntype, sqlalchemy.types.DECIMAL) or isinstance(columntype, sqlalchemy.types.NUMERIC):
                 # Increase length to avoid truncation issues
                 columntype = sqlalchemy.types.DECIMAL(38, 20)  # Max 38 digits, 20 decimals
