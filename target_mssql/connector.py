@@ -290,13 +290,24 @@ class mssqlConnector(SQLConnector):
 
             columntype = self.to_sql_type(property_jsonschema)
 
-            if is_primary_key:
-                # In MSSQL, Primary keys can not be more than 900 bytes. Setting at 255
-                if isinstance(columntype, sqlalchemy.types.VARCHAR) or isinstance(columntype, sqlalchemy.types.NVARCHAR):
+            if isinstance(columntype, sqlalchemy.types.VARCHAR) or isinstance(columntype, sqlalchemy.types.NVARCHAR):
+                if is_primary_key:
+                    # In MSSQL, Primary keys can not be more than 900 bytes. Setting at 255
                     columntype = sqlalchemy.types.VARCHAR(255)
-                # elif isinstance(columntype, sqlalchemy.types.BIGINT):
-                #     columntype = sqlalchemy.types.INTEGER()
+                else:
+                    columntype = sqlalchemy.types.VARCHAR(5000) 
+            elif isinstance(columntype, sqlalchemy.types.DECIMAL) or isinstance(columntype, sqlalchemy.types.NUMERIC):
+                # Increase length to avoid truncation issues
+                columntype = sqlalchemy.types.DECIMAL(38, 20)  # Max 38 digits, 20 decimals
 
+            elif isinstance(columntype, sqlalchemy.types.INTEGER):
+                # Upgrade to BIGINT to avoid truncation issues
+                columntype = sqlalchemy.types.BIGINT
+
+            elif isinstance(columntype, sqlalchemy.types.FLOAT):
+                # Increase length to avoid truncation issues
+                columntype = sqlalchemy.types.FLOAT(53)  # Maximum precision for FLOAT
+            
             columns.append(
                 sqlalchemy.Column(
                     property_name,
@@ -611,6 +622,8 @@ class mssqlConnector(SQLConnector):
             # Apply length only if it's a varchar/nvarchar type
             if col_type.lower() in ["varchar", "nvarchar"]:
                 col_length_str = "(MAX)" if col_length == -1 else f"({col_length})"
+            elif col_type.lower() in ["decimal", "numeric"]:
+                col_length_str = f"({precision_value}, {scale_value})"
             else:
                 col_length_str = ""
 
