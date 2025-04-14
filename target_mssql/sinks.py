@@ -11,7 +11,8 @@ from sqlalchemy import Column
 from textwrap import dedent
 import re
 import os
-from singer_sdk.helpers._conformers import replace_leading_digit, snakecase
+from singer_sdk.helpers._conformers import replace_leading_digit
+from target_mssql.utils import snakecase
 
 from target_mssql.connector import mssqlConnector
 
