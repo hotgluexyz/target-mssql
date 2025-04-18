@@ -181,6 +181,7 @@ class mssqlSink(SQLSink):
         host = self.config.get("host")
         user = self.config.get("user")
         password = self.config.get("password")
+        port = self.config.get("port")
 
         # build the dataframe
         df = pd.DataFrame(insert_records)
@@ -190,17 +191,20 @@ class mssqlSink(SQLSink):
         # run bcp
         bcp = "/opt/mssql-tools/bin/bcp" if os.environ.get("JOB_ROOT") else "bcp"
         db = f'"[{database}].[{db_schema}].[{table_name}]"'
-        bcp_cmd = f'{bcp} {db} in {table_name}.csv -S "{host}" -U "{user}" -P "{password}" -c -t"\t"  -e "error_log.txt"'
-        bcp_log = f'{bcp} {db} in {table_name}.csv -S "{host}" -U "[user]" -P "[password]" -c -t"\t"  -e "error_log.txt"'
-        self.logger.info( f" BCP Command: {bcp_log}")
+        bcp_cmd = f'{bcp} {db} in {table_name}.csv -S "{host},{port}" -U "{user}" -P "{password}" -c -t"\t"  -e "error_log.txt"'
+        bcp_log = f'{bcp} {db} in {table_name}.csv -S "{host},{port}" -U "[user]" -P "[password]" -c -t"\t"  -e "error_log.txt"'
+        self.logger.info( f"BCP Command: {bcp_log}")
         result = subprocess.run(
             bcp_cmd,
             shell=True, capture_output=True, text=True
         )
+        
         self.logger.info(result.stdout)
+        if "Login failed" in result.stdout or "Login timeout" in result.stdout:
+            raise Exception(result.stdout)
+
         if result.stderr:
             self.logger.error(result.stderr)
-
 
         if isinstance(records, list):
             return len(records)  # If list, we can quickly return record count.
