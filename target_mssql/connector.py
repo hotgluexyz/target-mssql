@@ -23,6 +23,7 @@ class mssqlConnector(SQLConnector):
     allow_merge_upsert: bool = True  # Whether MERGE UPSERT is supported.
     allow_temp_tables: bool = True  # Whether temp tables are supported.
     dropped_tables = dict()
+    table_columns = dict()
 
     def get_connection(self):
         """ Checks if current SQLAlchemy connection object is valid and returns the connection object.
@@ -604,6 +605,9 @@ class mssqlConnector(SQLConnector):
 
         columns = self.get_connection().execute(get_columns_query).fetchall()
         # self.logger.info(f"Fetched columns: {columns}")
+
+        # add columns types and precision
+        self.table_columns[from_table_name] = columns
 
         # Construct the CREATE TABLE statement
         column_definitions = []

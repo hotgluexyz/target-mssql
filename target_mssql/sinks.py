@@ -165,7 +165,17 @@ class mssqlSink(SQLSink):
                     # cast booleans
                     insert_record[column.name] = "1" if record.get(field) else "0"
                 elif record.get(field) and self.schema["properties"][field].get("format") == "date-time":
+                    # get datetime precision from table columns, if not present default to 6
+                    field_metadata = [col for col in self.connector.table_columns.get(self.full_table_name) if col[0] == column.name]
+                    dt_precision = None
+                    if field_metadata and len(field_metadata[0]) == 7:
+                        dt_precision = field_metadata[0][4]
+                    
+                    # format datetime to %Y-%m-%d %H:%M:%S.%f
                     insert_record[column.name] = record.get(field).strftime('%Y-%m-%d %H:%M:%S.%f')
+                    # strftime format always defaults to 6 digits of precision, only truncate if precision is less than 6
+                    if dt_precision and dt_precision < 6:
+                        insert_record[column.name] = insert_record[column.name][:-(6 - dt_precision)]
                 else:
                     insert_record[column.name] = record.get(field)
 
@@ -202,6 +212,14 @@ class mssqlSink(SQLSink):
         self.logger.info(result.stdout)
         if "Login failed" in result.stdout or "Login timeout" in result.stdout:
             raise Exception(result.stdout)
+        
+        # if error_log.txt exists and has data, read it and raise an error
+        if os.path.exists("error_log.txt"):
+            with open("error_log.txt", "r") as f:
+                error_log = f.read()
+            if error_log:
+                self.logger.error(error_log)
+                raise Exception(f"Error when inserting to {full_table_name}: {error_log[:100]}. Please check full error in logs.")
 
         if result.stderr:
             self.logger.error(result.stderr)
@@ -292,19 +310,19 @@ class mssqlSink(SQLSink):
                 schema=conformed_schema,
                 records=context["records"],
             )
-            # Merge data from Temp table to main table
-            self.logger.info(f"Merging data from temp table to {self.full_table_name}")
-            self.merge_upsert_from_table(
-                from_table_name=f"{db_schema}{temp_table}",
-                to_table_name=f"{self.full_table_name}",
-                schema=conformed_schema,
-                join_keys=self.key_properties,
-            )
+            # # Merge data from Temp table to main table
+            # self.logger.info(f"Merging data from temp table to {self.full_table_name}")
+            # self.merge_upsert_from_table(
+            #     from_table_name=f"{db_schema}{temp_table}",
+            #     to_table_name=f"{self.full_table_name}",
+            #     schema=conformed_schema,
+            #     join_keys=self.key_properties,
+            # )
 
-            self.logger.info(f"Dropping temp table as batch is done {self.full_table_name}")
-            self.connector.drop_temp_table_from_table(
-                temp_table=f"{db_schema}{temp_table}"
-            )
+            # self.logger.info(f"Dropping temp table as batch is done {self.full_table_name}")
+            # self.connector.drop_temp_table_from_table(
+            #     temp_table=f"{db_schema}{temp_table}"
+            # )
         else:
             self.bulk_insert_records(
                 full_table_name=self.full_table_name,
