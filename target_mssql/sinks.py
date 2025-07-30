@@ -310,19 +310,19 @@ class mssqlSink(SQLSink):
                 schema=conformed_schema,
                 records=context["records"],
             )
-            # # Merge data from Temp table to main table
-            # self.logger.info(f"Merging data from temp table to {self.full_table_name}")
-            # self.merge_upsert_from_table(
-            #     from_table_name=f"{db_schema}{temp_table}",
-            #     to_table_name=f"{self.full_table_name}",
-            #     schema=conformed_schema,
-            #     join_keys=self.key_properties,
-            # )
+            # Merge data from Temp table to main table
+            self.logger.info(f"Merging data from temp table to {self.full_table_name}")
+            self.merge_upsert_from_table(
+                from_table_name=f"{db_schema}{temp_table}",
+                to_table_name=f"{self.full_table_name}",
+                schema=conformed_schema,
+                join_keys=self.key_properties,
+            )
 
-            # self.logger.info(f"Dropping temp table as batch is done {self.full_table_name}")
-            # self.connector.drop_temp_table_from_table(
-            #     temp_table=f"{db_schema}{temp_table}"
-            # )
+            self.logger.info(f"Dropping temp table as batch is done {self.full_table_name}")
+            self.connector.drop_temp_table_from_table(
+                temp_table=f"{db_schema}{temp_table}"
+            )
         else:
             self.bulk_insert_records(
                 full_table_name=self.full_table_name,
