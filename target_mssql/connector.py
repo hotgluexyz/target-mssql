@@ -4,6 +4,8 @@ from typing import Any, Dict, Iterable, List, Optional, cast
 
 import sqlalchemy
 import urllib.parse
+import json
+from pathlib import Path
 from singer_sdk.helpers._typing import get_datelike_property_type
 from singer_sdk.sinks import SQLConnector
 from sqlalchemy.dialects import mssql
@@ -24,6 +26,7 @@ class mssqlConnector(SQLConnector):
     allow_temp_tables: bool = True  # Whether temp tables are supported.
     dropped_tables = dict()
     table_columns = dict()
+    _table_config_cache = None
 
     def get_connection(self):
         """ Checks if current SQLAlchemy connection object is valid and returns the connection object.
@@ -39,6 +42,53 @@ class mssqlConnector(SQLConnector):
 
         return self.connection
 
+    def load_table_config(self) -> Dict[str, Any]:
+        """Load target-tables-config.json from etl-output directory.
+        
+        Returns:
+            Dictionary containing table configurations, or empty dict if file not found.
+        """
+        if self._table_config_cache is not None:
+            return self._table_config_cache
+            
+        config_path = Path(f"{self.config['input_path']}/target-tables-config.json")
+        
+        try:
+            if config_path.exists():
+                with open(config_path, 'r') as f:
+                    self._table_config_cache = json.load(f)
+                    self.logger.info(f"Loaded table configuration from {config_path}")
+            else:
+                self.logger.warning(f"Table configuration file not found at {config_path}")
+                self._table_config_cache = {}
+        except (json.JSONDecodeError, IOError) as e:
+            self.logger.error(f"Error loading table configuration: {e}")
+            self._table_config_cache = {}
+            
+        return self._table_config_cache
+
+    def should_truncate_table(self, stream_name: str) -> bool:
+        """Check if a table should be truncated based on stream configuration.
+        
+        Args:
+            stream_name: The name of the stream/table.
+            
+        Returns:
+            True if table should be truncated, False otherwise.
+        """
+        # First check global truncate flag for backward compatibility
+        if self.config.get("truncate"):
+            return True
+            
+        # Check stream-specific configuration
+        table_config = self.load_table_config()
+        stream_config = table_config.get("streams", {}).get(stream_name, {})
+        
+        # Check both truncate flag and replication_method
+        if stream_config.get("truncate") or stream_config.get("replication_method") == "truncate":
+            return True
+            
+        return False
 
     def create_sqlalchemy_engine(self) -> sqlalchemy.engine.Engine:
         """Return a new SQLAlchemy engine using the provided config.
@@ -149,6 +199,7 @@ class mssqlConnector(SQLConnector):
         primary_keys: list[str],
         partition_keys: list[str] | None = None,
         as_temp_table: bool = False,
+        stream_name: str | None = None,
     ) -> None:
         """Adapt target table to provided schema if possible.
 
@@ -158,10 +209,18 @@ class mssqlConnector(SQLConnector):
             primary_keys: list of key properties.
             partition_keys: list of partition keys.
             as_temp_table: True to create a temp table.
+            stream_name: the name of the stream for configuration lookup.
         """
-        # NOTE: Force create the table if truncate flag is on
-        if self.config.get("truncate") and not self.dropped_tables.get(full_table_name, False):
-            self.logger.info(f"Force dropping the table {full_table_name}!")
+        # NOTE: Force create the table if truncate flag is on (either globally or per-stream)
+        should_truncate = False
+        if stream_name:
+            should_truncate = self.should_truncate_table(stream_name)
+        else:
+            # Fallback to global config for backward compatibility
+            should_truncate = self.config.get("truncate", False)
+            
+        if should_truncate and not self.dropped_tables.get(full_table_name, False):
+            self.logger.info(f"Force dropping the table {full_table_name} (stream: {stream_name})!")
             with self.connection.begin():  # Starts a transaction
                 drop_table = '.'.join([f'[{x}]' for x in full_table_name.split('.')])
                 self.connection.execute(f"DROP TABLE IF EXISTS {drop_table};")
@@ -578,15 +637,8 @@ class mssqlConnector(SQLConnector):
                 self.get_connection().execute(f"DROP TABLE IF EXISTS {temp_table};")
         except Exception as e:
             self.logger.info(f"No temp table to drop. Error: {e}")
-
-    def create_temp_table_from_table(self, from_table_name):
-        """Create a temp table from an existing table, preserving identity columns and default values."""
-        parts = from_table_name.split(".")
-        schema = parts[0] + "." if "." in from_table_name else ""
-        table = "temp_" + parts[-1]
-
-        self.drop_temp_table_from_table(f"{schema}{table}")
-
+            
+    def get_table_columns_cache(self, from_table_name):
         # Query to get column definitions, including identity property
         get_columns_query = f"""
             SELECT 
@@ -608,6 +660,16 @@ class mssqlConnector(SQLConnector):
 
         # add columns types and precision
         self.table_columns[from_table_name] = columns
+        return columns
+
+    def create_temp_table_from_table(self, from_table_name):
+        """Create a temp table from an existing table, preserving identity columns and default values."""
+        parts = from_table_name.split(".")
+        schema = parts[0] + "." if "." in from_table_name else ""
+        table = "temp_" + parts[-1]
+
+        self.drop_temp_table_from_table(f"{schema}{table}")
+        columns = self.get_table_columns_cache(from_table_name)
 
         # Construct the CREATE TABLE statement
         column_definitions = []

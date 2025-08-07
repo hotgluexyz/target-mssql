@@ -291,6 +291,7 @@ class mssqlSink(SQLSink):
                 schema=conformed_schema,
                 primary_keys=self.key_properties,
                 as_temp_table=False,
+                stream_name=self.stream_name,
             )
             # self.alter_varchar_columns(self.full_table_name, conformed_schema)
             # Create a temp table (Creates from the table above)
@@ -324,6 +325,15 @@ class mssqlSink(SQLSink):
                 temp_table=f"{db_schema}{temp_table}"
             )
         else:
+            self.connector.prepare_table(
+                full_table_name=self.full_table_name,
+                schema=conformed_schema,
+                primary_keys=None,
+                as_temp_table=False,
+                stream_name=self.stream_name,
+            )
+            self.connector.get_table_columns_cache(self.full_table_name)
+
             self.bulk_insert_records(
                 full_table_name=self.full_table_name,
                 schema=conformed_schema,
