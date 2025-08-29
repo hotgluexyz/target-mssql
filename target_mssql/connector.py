@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, Iterable, List, Optional, cast
 
+import time
 import sqlalchemy
 import urllib.parse
 import json
@@ -9,6 +10,7 @@ from pathlib import Path
 from singer_sdk.helpers._typing import get_datelike_property_type
 from singer_sdk.sinks import SQLConnector
 from sqlalchemy.dialects import mssql
+from sqlalchemy.exc import OperationalError
 from target_mssql.metadata import write_event
 from sqlalchemy import text
 
@@ -105,6 +107,27 @@ class mssqlConnector(SQLConnector):
         )
 
         return engine
+    
+    def create_sqlalchemy_connection(self) -> sqlalchemy.engine.Connection:
+        """
+        Override the default connection creation to add retry logic.
+        """
+        max_retries = 3
+        retry_delay = 10
+        for i in range(max_retries):
+            try:
+                self.logger.info("Connecting to the database...")
+                connection = self.create_sqlalchemy_engine().connect()
+                self.logger.info("Successfully connected to the database.")
+                return connection.execution_options(stream_results=True)
+            except OperationalError as e:
+                self.logger.error(f"Connection attempt {i+1} failed: {e}")
+                if i < max_retries - 1:
+                    self.logger.info(f"Retrying in {retry_delay} seconds...")
+                    time.sleep(retry_delay)
+                else:
+                    self.logger.info("Max retries reached. Could not establish a database connection.")
+                    raise # Re-raise the last exception if all retries fail
 
     def table_exists(self, full_table_name: str) -> bool:
         """Determine if the target table already exists.
