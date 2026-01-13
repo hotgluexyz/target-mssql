@@ -1,6 +1,7 @@
 """mssql target class."""
 
 from __future__ import annotations
+import logging
 
 from singer_sdk import typing as th
 from singer_sdk.target_base import SQLTarget
@@ -21,6 +22,16 @@ class Targetmssql(SQLTarget):
     ).to_dict()
 
     default_sink_class = mssqlSink
+
+    def __init__(self, *args, **kwargs):
+        """Initialize the target and configure logger to not add timestamps."""
+        super().__init__(*args, **kwargs)
+        
+        logging.basicConfig(
+            level=logging.INFO,
+            format='[%(levelname)s] %(message)s',
+            force=True,
+        )
 
 
 if __name__ == "__main__":

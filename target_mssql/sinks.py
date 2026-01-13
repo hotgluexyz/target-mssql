@@ -219,7 +219,8 @@ class mssqlSink(SQLSink):
                 error_log = f.read()
             if error_log:
                 self.logger.error(error_log)
-                raise Exception(f"Error when inserting to {full_table_name}: {error_log[:100]}. Please check full error in logs.")
+                error_message = error_log[:100].replace("\n", " ")
+                raise Exception(f"Error when inserting to {full_table_name}: {error_message}. Please check full error in logs.")
 
         if result.stderr:
             self.logger.error(result.stderr)

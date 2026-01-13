@@ -142,3 +142,5 @@ plugins/
 config.json
 poetry.lock
 .history
+!template/config.json
+.vscode/

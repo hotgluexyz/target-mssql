@@ -51,7 +51,7 @@ class mssqlConnector(SQLConnector):
         if self._table_config_cache is not None:
             return self._table_config_cache
             
-        config_path = Path(f"{self.config['input_path']}/target-tables-config.json")
+        config_path = Path(f"{self.config.get('input_path', '.')}/target-tables-config.json")
         
         try:
             if config_path.exists():
@@ -121,7 +121,7 @@ class mssqlConnector(SQLConnector):
             kwargs["schema"] = full_table_name.split(".")[0]
             full_table_name = full_table_name.split(".")[1]
 
-        self.logger.info(f"Checking table exists: {full_table_name} kwrags={kwargs}")
+        self.logger.info(f"Checking table exists: {full_table_name} kwargs={kwargs}")
 
         return cast(
             bool,
