@@ -34,17 +34,14 @@ pipx install git+https://github.com/ORG_NAME/target-mssql.git@main
 
 ## Configuration
 
+### Configuration Template
+
+For a complete configuration guide with examples, see the [template configuration files](template/README.md) in the `template/` directory. The template includes:
+
+- **`template/config.json`** - Example configuration file with all available options
+- **`template/README.md`** - Comprehensive documentation of all configuration options, connection methods, and usage examples
+
 ### Accepted Config Options
-
-<!--
-Developer TODO: Provide a list of config options accepted by the target.
-
-This section can be created by copy-pasting the CLI output from:
-
-```
-target-mssql --about --format=markdown
-```
--->
 
 A full list of supported settings and capabilities for this
 target is available by running:
