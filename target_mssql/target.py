@@ -29,7 +29,7 @@ class Targetmssql(SQLTarget):
         
         logging.basicConfig(
             level=logging.INFO,
-            format='[%(levelname)s] %(message)s',
+            format='%(message)s',
             force=True,
         )
 
