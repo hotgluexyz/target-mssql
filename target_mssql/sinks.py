@@ -7,7 +7,7 @@ from typing import Any, Dict, Iterable, List, Optional, Union
 from copy import copy
 import sqlalchemy
 from singer_sdk.sinks import SQLSink
-from sqlalchemy import Column, text
+from sqlalchemy import Column
 from textwrap import dedent
 import re
 import os
