@@ -7,7 +7,7 @@ from typing import Any, Dict, Iterable, List, Optional, Union
 from copy import copy
 import sqlalchemy
 from singer_sdk.sinks import SQLSink
-from sqlalchemy import Column
+from sqlalchemy import Column, text
 from textwrap import dedent
 import re
 import os
@@ -19,6 +19,29 @@ import pandas as pd
 import subprocess
 import collections
 import hashlib
+
+class StringTruncationError(Exception):
+    """Raised when data exceeds the target column's string length (SQL State 22001)."""
+
+    def __init__(self, table_name: str, detail: str = ""):
+        self.table_name = table_name
+        self.detail = detail
+        msg = (
+            f"String data too long for one or more columns in table {table_name}. "
+            "Some values exceed the column's maximum length (SQL State 22001: right truncation). "
+            "Fix: increase the column size in SQL Server (e.g. VARCHAR(n) or NVARCHAR(MAX)) "
+            "or ensure the source data does not exceed the defined size."
+        )
+        if detail:
+            msg += f" Details: {detail}"
+        super().__init__(msg)
+
+
+def _is_string_truncation_error(text: str) -> bool:
+    """Return True if the error output indicates string/data right truncation (SQL State 22001)."""
+    if not text or not text.strip():
+        return False
+    return "22001" in text or "String data, right truncation" in text
 
 class mssqlSink(SQLSink):
     """mssql target sink class."""
@@ -209,8 +232,9 @@ class mssqlSink(SQLSink):
             shell=True, capture_output=True, text=True
         )
         
-        self.logger.info(result.stdout)
-        if "Login failed" in result.stdout or "Login timeout" in result.stdout:
+        if result.stdout:
+            self.logger.info("BCP bulk copy started." if "Starting copy" in result.stdout else result.stdout)
+        if "Login failed" in (result.stdout or "") or "Login timeout" in (result.stdout or ""):
             raise Exception(result.stdout)
         
         # if error_log.txt exists and has data, read it and raise an error
@@ -218,11 +242,15 @@ class mssqlSink(SQLSink):
             with open("error_log.txt", "r") as f:
                 error_log = f.read()
             if error_log:
+                if _is_string_truncation_error(error_log):
+                    raise StringTruncationError(full_table_name)
                 self.logger.error(error_log)
                 error_message = error_log[:100].replace("\n", " ")
                 raise Exception(f"Error when inserting to {full_table_name}: {error_message}. Please check full error in logs.")
 
         if result.stderr:
+            if _is_string_truncation_error(result.stderr):
+                raise StringTruncationError(full_table_name)
             self.logger.error(result.stderr)
 
         if isinstance(records, list):

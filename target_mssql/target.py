@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 import logging
+import sys
 
 from singer_sdk import typing as th
 from singer_sdk.target_base import SQLTarget
 
-from target_mssql.sinks import mssqlSink
+from target_mssql.sinks import mssqlSink,StringTruncationError
 
 
 class Targetmssql(SQLTarget):
@@ -22,6 +23,14 @@ class Targetmssql(SQLTarget):
     ).to_dict()
 
     default_sink_class = mssqlSink
+
+    @classmethod
+    def cli(cls, *args, **kwargs):
+        try:
+            return super().cli(*args, **kwargs)
+        except StringTruncationError as e:
+            print(str(e), file=sys.stderr)
+            sys.exit(1)
 
     def __init__(self, *args, **kwargs):
         """Initialize the target and configure logger to not add timestamps."""
