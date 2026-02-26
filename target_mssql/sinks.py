@@ -243,14 +243,16 @@ class mssqlSink(SQLSink):
                 error_log = f.read()
             if error_log:
                 if _is_string_truncation_error(error_log):
-                    raise StringTruncationError(full_table_name)
+                    detail = error_log[:200].replace("\n", " ").strip()
+                    raise StringTruncationError(full_table_name, detail=detail)
                 self.logger.error(error_log)
                 error_message = error_log[:100].replace("\n", " ")
                 raise Exception(f"Error when inserting to {full_table_name}: {error_message}. Please check full error in logs.")
 
         if result.stderr:
             if _is_string_truncation_error(result.stderr):
-                raise StringTruncationError(full_table_name)
+                detail = result.stderr[:200].replace("\n", " ").strip()
+                raise StringTruncationError(full_table_name, detail=detail)
             self.logger.error(result.stderr)
 
         if isinstance(records, list):
