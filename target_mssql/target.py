@@ -24,13 +24,6 @@ class Targetmssql(SQLTarget):
 
     default_sink_class = mssqlSink
 
-    @classmethod
-    def cli(cls, *args, **kwargs):
-        try:
-            return super().cli(*args, **kwargs)
-        except StringTruncationError as e:
-            print(str(e), file=sys.stderr)
-            sys.exit(1)
 
     def __init__(self, *args, **kwargs):
         """Initialize the target and configure logger to not add timestamps."""
