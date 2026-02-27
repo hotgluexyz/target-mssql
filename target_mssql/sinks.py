@@ -41,7 +41,7 @@ def _is_string_truncation_error(text: str) -> bool:
     """Return True if the error output indicates string/data right truncation (SQL State 22001)."""
     if not text or not text.strip():
         return False
-    return "22001" in text or "String data, right truncation" in text
+    return "String data, right truncation" in text
 
 class mssqlSink(SQLSink):
     """mssql target sink class."""
