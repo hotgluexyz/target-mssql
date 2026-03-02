@@ -23,6 +23,7 @@ class Targetmssql(SQLTarget):
 
     default_sink_class = mssqlSink
 
+
     def __init__(self, *args, **kwargs):
         """Initialize the target and configure logger to not add timestamps."""
         super().__init__(*args, **kwargs)
