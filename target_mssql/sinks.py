@@ -9,7 +9,6 @@ import sqlalchemy
 from singer_sdk.sinks import SQLSink
 from sqlalchemy import Column
 from textwrap import dedent
-import csv
 import json
 import re
 import os
