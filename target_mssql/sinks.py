@@ -119,7 +119,6 @@ class mssqlSink(SQLSink):
             val = record[key]
             if isinstance(val, (list, dict)):
                 record[key] = json.dumps(val, ensure_ascii=False)
-                # record[key] = str(val)
         return record
 
     def check_string_key_properties(self):
