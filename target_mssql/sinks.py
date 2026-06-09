@@ -9,6 +9,8 @@ import sqlalchemy
 from singer_sdk.sinks import SQLSink
 from sqlalchemy import Column
 from textwrap import dedent
+import csv
+import json
 import re
 import os
 from singer_sdk.helpers._conformers import replace_leading_digit, snakecase
@@ -113,12 +115,10 @@ class mssqlSink(SQLSink):
         Returns:
             A new, processed record.
         """
-        keys = record.keys()
-        for key in keys:
-            if type(record[key]) is list:
-                record[key] = str(record[key])
-            if isinstance(record[key], dict):
-                record[key] = str(record[key])
+        for key in record:
+            val = record[key]
+            if isinstance(val, (list, dict)):
+                record[key] = json.dumps(val, ensure_ascii=True).replace('"', "'")
         return record
 
     def check_string_key_properties(self):
