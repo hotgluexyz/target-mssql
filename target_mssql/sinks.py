@@ -9,6 +9,8 @@ import sqlalchemy
 from singer_sdk.sinks import SQLSink
 from sqlalchemy import Column
 from textwrap import dedent
+import csv
+import json
 import re
 import os
 from singer_sdk.helpers._conformers import replace_leading_digit, snakecase
@@ -113,12 +115,10 @@ class mssqlSink(SQLSink):
         Returns:
             A new, processed record.
         """
-        keys = record.keys()
-        for key in keys:
-            if type(record[key]) is list:
-                record[key] = str(record[key])
-            if isinstance(record[key], dict):
-                record[key] = str(record[key])
+        for key in record:
+            val = record[key]
+            if isinstance(val, (list, dict)):
+                record[key] = json.dumps(val, ensure_ascii=False)
         return record
 
     def check_string_key_properties(self):
@@ -219,7 +219,7 @@ class mssqlSink(SQLSink):
         # build the dataframe
         df = pd.DataFrame(insert_records)
         df = df.replace(r"[\n\r\t]", " ", regex=True)
-        df.to_csv(f"{table_name}.csv", index=False, header=False, sep="\t")
+        df.to_csv(f"{table_name}.csv", index=False, header=False, sep="\t", quoting=csv.QUOTE_NONE, escapechar="\\")
 
         # run bcp
         bcp = "/opt/mssql-tools/bin/bcp" if os.environ.get("JOB_ROOT") else "bcp"
