@@ -219,7 +219,7 @@ class mssqlSink(SQLSink):
         # build the dataframe
         df = pd.DataFrame(insert_records)
         df = df.replace(r"[\n\r\t]", " ", regex=True)
-        df.to_csv(f"{table_name}.csv", index=False, header=False, sep="\t", quoting=csv.QUOTE_NONE, escapechar="\\")
+        df.to_csv(f"{table_name}.csv", index=False, header=False, sep="\t", quoting=csv.QUOTE_NONE)
 
         # run bcp
         bcp = "/opt/mssql-tools/bin/bcp" if os.environ.get("JOB_ROOT") else "bcp"
