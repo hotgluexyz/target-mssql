@@ -125,6 +125,8 @@ class mssqlConnector(SQLConnector):
                 return connection.execution_options(stream_results=True)
             except OperationalError as e:
                 self.logger.error(f"Connection attempt {attempt} failed: {e}")
+                if "Login failed" in str(e):
+                    raise
                 if attempt < CONNECTION_MAX_RETRIES:
                     self.logger.info(
                         f"Retrying in {CONNECTION_RETRY_DELAY_SECONDS} seconds..."
