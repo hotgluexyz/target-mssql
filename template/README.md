@@ -153,7 +153,9 @@ The target uses the following connection parameters by default:
 - **Encryption**: Enabled (`Encrypt=yes`)
 - **Trust Server Certificate**: Enabled (`TrustServerCertificate=yes`) - useful for development/testing
 - **MARS Connection**: Enabled (`MARS_Connection=Yes`)
-- **Connection Retry**: 3 attempts with 15-second intervals
+- **Login Timeout**: 60 seconds (SQLAlchemy `timeout` / `LoginTimeout`, and BCP `-l`)
+- **Connection Retry**: 3 attempts with 10-second delays for transient login/connect failures
+- **Idle Connection Retry**: ODBC `ConnectRetryCount=3` with 15-second intervals
 
 ## Usage
 

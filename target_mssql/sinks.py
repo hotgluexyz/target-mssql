@@ -13,14 +13,31 @@ import csv
 import json
 import re
 import os
+import time
 from singer_sdk.helpers._conformers import replace_leading_digit, snakecase
 
-from target_mssql.connector import mssqlConnector
+from target_mssql.connector import (
+    CONNECTION_MAX_RETRIES,
+    CONNECTION_RETRY_DELAY_SECONDS,
+    LOGIN_TIMEOUT_SECONDS,
+    mssqlConnector,
+)
 
 import pandas as pd
 import subprocess
 import collections
 import hashlib
+
+_BCP_RETRYABLE_ERRORS = (
+    "Login timeout",
+    "Unable to complete login process",
+    "Communication link failure",
+    "TCP Provider",
+    "Connection broken",
+    "server is not found or not accessible",
+    "Connection reset",
+    "network-related",
+)
 
 class StringTruncationError(Exception):
     """Raised when data exceeds the target column's string length (SQL State 22001)."""
@@ -44,6 +61,16 @@ def _is_string_truncation_error(text: str) -> bool:
     if not text or not text.strip():
         return False
     return "String data, right truncation" in text
+
+
+def _is_retryable_bcp_connection_error(text: str) -> bool:
+    """Return True if BCP output indicates a transient connection/login timeout."""
+    if not text or not text.strip():
+        return False
+    # Permanent auth failures should fail fast.
+    if "Login failed" in text:
+        return False
+    return any(err in text for err in _BCP_RETRYABLE_ERRORS)
 
 class mssqlSink(SQLSink):
     """mssql target sink class."""
@@ -221,22 +248,63 @@ class mssqlSink(SQLSink):
         df = df.replace(r"[\n\r\t]", " ", regex=True)
         df.to_csv(f"{table_name}.csv", index=False, header=False, sep="\t", quoting=csv.QUOTE_NONE)
 
-        # run bcp
+        # run bcp with an extended login timeout and retries for transient failures
         bcp = "/opt/mssql-tools/bin/bcp" if os.environ.get("JOB_ROOT") else "bcp"
         db = f'"[{database}].[{db_schema}].[{table_name}]"'
-        bcp_cmd = f'{bcp} {db} in {table_name}.csv -S "{host},{port}" -U "{user}" -P "{password}" -c -t"\t"  -e "error_log.txt"'
-        bcp_log = f'{bcp} {db} in {table_name}.csv -S "{host},{port}" -U "[user]" -P "[password]" -c -t"\t"  -e "error_log.txt"'
-        self.logger.info( f"BCP Command: {bcp_log}")
-        result = subprocess.run(
-            bcp_cmd,
-            shell=True, capture_output=True, text=True
+        bcp_flags = (
+            f'-S "{host},{port}" -U "{user}" -P "{password}" '
+            f'-c -t"\t" -l {LOGIN_TIMEOUT_SECONDS} -e "error_log.txt"'
         )
-        
-        if result.stdout:
-            self.logger.info("BCP bulk copy started." if "Starting copy" in result.stdout else result.stdout)
-        if "Login failed" in (result.stdout or "") or "Login timeout" in (result.stdout or ""):
-            raise Exception(result.stdout)
-        
+        bcp_cmd = f'{bcp} {db} in {table_name}.csv {bcp_flags}'
+        bcp_log = (
+            f'{bcp} {db} in {table_name}.csv '
+            f'-S "{host},{port}" -U "[user]" -P "[password]" '
+            f'-c -t"\t" -l {LOGIN_TIMEOUT_SECONDS} -e "error_log.txt"'
+        )
+        self.logger.info(f"BCP Command: {bcp_log}")
+
+        result = None
+        for attempt in range(1, CONNECTION_MAX_RETRIES + 1):
+            if os.path.exists("error_log.txt"):
+                os.remove("error_log.txt")
+
+            if attempt > 1:
+                self.logger.info(
+                    f"Retrying BCP (attempt {attempt}/{CONNECTION_MAX_RETRIES}) "
+                    f"after {CONNECTION_RETRY_DELAY_SECONDS}s..."
+                )
+                time.sleep(CONNECTION_RETRY_DELAY_SECONDS)
+
+            result = subprocess.run(
+                bcp_cmd,
+                shell=True, capture_output=True, text=True
+            )
+            bcp_output = "\n".join(
+                part for part in (result.stdout, result.stderr) if part
+            )
+
+            if result.stdout:
+                self.logger.info(
+                    "BCP bulk copy started."
+                    if "Starting copy" in result.stdout
+                    else result.stdout
+                )
+
+            if "Login failed" in bcp_output:
+                raise Exception(result.stdout or result.stderr)
+
+            if _is_retryable_bcp_connection_error(bcp_output):
+                self.logger.warning(
+                    f"BCP connection failure on attempt {attempt}/{CONNECTION_MAX_RETRIES}: "
+                    f"{bcp_output[:500]}"
+                )
+                if attempt < CONNECTION_MAX_RETRIES:
+                    continue
+                raise Exception(bcp_output)
+
+            # Non-retryable path: fall through to existing error_log / stderr handling
+            break
+
         # if error_log.txt exists and has data, read it and raise an error
         if os.path.exists("error_log.txt"):
             with open("error_log.txt", "r") as f:
@@ -249,7 +317,7 @@ class mssqlSink(SQLSink):
                 error_message = error_log[:100].replace("\n", " ")
                 raise Exception(f"Error when inserting to {full_table_name}: {error_message}. Please check full error in logs.")
 
-        if result.stderr:
+        if result and result.stderr:
             if _is_string_truncation_error(result.stderr):
                 detail = result.stderr[:200].replace("\n", " ").strip()
                 raise StringTruncationError(full_table_name, detail=detail)
