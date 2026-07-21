@@ -114,13 +114,18 @@ class mssqlConnector(SQLConnector):
         return engine
 
     def create_sqlalchemy_connection(self) -> sqlalchemy.engine.Connection:
-        """Create a SQLAlchemy connection, retrying transient connect failures."""
+        """Create a SQLAlchemy connection, retrying transient connect failures.
+
+        Uses create_sqlalchemy_engine() directly — do not use self._engine here.
+        In singer-sdk, _engine is derived from self.connection, which calls this
+        method, so accessing _engine would recurse infinitely.
+        """
         for attempt in range(1, CONNECTION_MAX_RETRIES + 1):
             try:
                 self.logger.info(
                     f"Connecting to the database (attempt {attempt}/{CONNECTION_MAX_RETRIES})..."
                 )
-                connection = self._engine.connect()
+                connection = self.create_sqlalchemy_engine().connect()
                 self.logger.info("Successfully connected to the database.")
                 return connection.execution_options(stream_results=True)
             except OperationalError as e:
