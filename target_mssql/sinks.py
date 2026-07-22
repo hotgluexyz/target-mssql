@@ -248,16 +248,9 @@ class mssqlSink(SQLSink):
 
         bcp = "/opt/mssql-tools/bin/bcp" if os.environ.get("JOB_ROOT") else "bcp"
         db = f'"[{database}].[{db_schema}].[{table_name}]"'
-        bcp_flags = (
-            f'-S "{host},{port}" -U "{user}" -P "{password}" '
-            f'-c -t"\t" -l {LOGIN_TIMEOUT_SECONDS} -e "error_log.txt"'
-        )
-        bcp_cmd = f'{bcp} {db} in {table_name}.csv {bcp_flags}'
-        bcp_log = (
-            f'{bcp} {db} in {table_name}.csv '
-            f'-S "{host},{port}" -U "[user]" -P "[password]" '
-            f'-c -t"\t" -l {LOGIN_TIMEOUT_SECONDS} -e "error_log.txt"'
-        )
+        bcp_flags = f'-S "{host},{port}" -c -t"\t" -l {LOGIN_TIMEOUT_SECONDS} -e "error_log.txt"'
+        bcp_cmd = f'{bcp} {db} in {table_name}.csv -U "{user}" -P "{password}" {bcp_flags}'
+        bcp_log = f'{bcp} {db} in {table_name}.csv -U "[user]" -P "[password]" {bcp_flags}'
         self.logger.info(f"BCP Command: {bcp_log}")
 
         result = None
