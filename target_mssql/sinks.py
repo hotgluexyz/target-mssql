@@ -30,8 +30,8 @@ import hashlib
 
 # Only pre-login / connect-establishment failures.
 _BCP_RETRYABLE_ERRORS = (
-    "Login timeout",
-    "Unable to complete login process",
+    "login timeout",
+    "unable to complete login process",
     "server is not found or not accessible",
 )
 
@@ -68,7 +68,7 @@ def _is_retryable_bcp_connection_error(text: str) -> bool:
         return False
     if "Starting copy" in text:
         return False
-    return any(err in text for err in _BCP_RETRYABLE_ERRORS)
+    return any(err in text.lower() for err in _BCP_RETRYABLE_ERRORS)
 
 class mssqlSink(SQLSink):
     """mssql target sink class."""
