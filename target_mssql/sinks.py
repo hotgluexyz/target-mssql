@@ -28,15 +28,11 @@ import subprocess
 import collections
 import hashlib
 
+# Only pre-login / connect-establishment failures.
 _BCP_RETRYABLE_ERRORS = (
     "Login timeout",
     "Unable to complete login process",
-    "Communication link failure",
-    "TCP Provider",
-    "Connection broken",
     "server is not found or not accessible",
-    "Connection reset",
-    "network-related",
 )
 
 class StringTruncationError(Exception):
@@ -64,11 +60,13 @@ def _is_string_truncation_error(text: str) -> bool:
 
 
 def _is_retryable_bcp_connection_error(text: str) -> bool:
-    """Return True if BCP output indicates a transient connection/login timeout."""
+    """Return True if BCP failed before any rows could have been loaded.
+    """
     if not text or not text.strip():
         return False
-    # Permanent auth failures should fail fast.
     if "Login failed" in text:
+        return False
+    if "Starting copy" in text:
         return False
     return any(err in text for err in _BCP_RETRYABLE_ERRORS)
 
@@ -248,7 +246,6 @@ class mssqlSink(SQLSink):
         df = df.replace(r"[\n\r\t]", " ", regex=True)
         df.to_csv(f"{table_name}.csv", index=False, header=False, sep="\t", quoting=csv.QUOTE_NONE)
 
-        # run bcp with an extended login timeout and retries for transient failures
         bcp = "/opt/mssql-tools/bin/bcp" if os.environ.get("JOB_ROOT") else "bcp"
         db = f'"[{database}].[{db_schema}].[{table_name}]"'
         bcp_flags = (
@@ -291,7 +288,7 @@ class mssqlSink(SQLSink):
                 )
 
             if "Login failed" in bcp_output:
-                raise Exception(result.stdout or result.stderr)
+                raise Exception(bcp_output)
 
             if _is_retryable_bcp_connection_error(bcp_output):
                 self.logger.warning(
@@ -302,7 +299,6 @@ class mssqlSink(SQLSink):
                     continue
                 raise Exception(bcp_output)
 
-            # Non-retryable path: fall through to existing error_log / stderr handling
             break
 
         # if error_log.txt exists and has data, read it and raise an error
