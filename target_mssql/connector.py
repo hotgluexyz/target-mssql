@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, Iterable, List, Optional, cast
 
+import time
 import sqlalchemy
 import urllib.parse
 import json
@@ -9,8 +10,13 @@ from pathlib import Path
 from singer_sdk.helpers._typing import get_datelike_property_type
 from singer_sdk.sinks import SQLConnector
 from sqlalchemy.dialects import mssql
+from sqlalchemy.exc import OperationalError
 from target_mssql.metadata import write_event
 from sqlalchemy import text
+
+LOGIN_TIMEOUT_SECONDS = 60
+CONNECTION_MAX_RETRIES = 3
+CONNECTION_RETRY_DELAY_SECONDS = 10
 
 
 class mssqlConnector(SQLConnector):
@@ -101,10 +107,37 @@ class mssqlConnector(SQLConnector):
             self.sqlalchemy_url,
             echo=False,
             pool_pre_ping=True,
-            pool_recycle=1800
+            pool_recycle=1800,
+            connect_args={"timeout": LOGIN_TIMEOUT_SECONDS},
         )
 
         return engine
+
+    def create_sqlalchemy_connection(self) -> sqlalchemy.engine.Connection:
+        """Create a SQLAlchemy connection, retrying transient connect failures.
+        """
+        for attempt in range(1, CONNECTION_MAX_RETRIES + 1):
+            try:
+                self.logger.info(
+                    f"Connecting to the database (attempt {attempt}/{CONNECTION_MAX_RETRIES})..."
+                )
+                connection = self.create_sqlalchemy_engine().connect()
+                self.logger.info("Successfully connected to the database.")
+                return connection.execution_options(stream_results=True)
+            except OperationalError as e:
+                self.logger.error(f"Connection attempt {attempt} failed: {e}")
+                if "Login failed" in str(e):
+                    raise
+                if attempt < CONNECTION_MAX_RETRIES:
+                    self.logger.info(
+                        f"Retrying in {CONNECTION_RETRY_DELAY_SECONDS} seconds..."
+                    )
+                    time.sleep(CONNECTION_RETRY_DELAY_SECONDS)
+                else:
+                    self.logger.error(
+                        "Max retries reached. Could not establish a database connection."
+                    )
+                    raise
 
     def table_exists(self, full_table_name: str) -> bool:
         """Determine if the target table already exists.
@@ -304,8 +337,9 @@ class mssqlConnector(SQLConnector):
                 "Encrypt": "yes",  # Ensures SSL encryption for Azure SQL
                 "TrustServerCertificate": "yes",  # Prevents bypassing certificate validation
                 "MARS_Connection": "Yes",
+                "LoginTimeout": str(LOGIN_TIMEOUT_SECONDS),
                 "ConnectRetryCount": "3",
-                "ConnectRetryInterval": "15"
+                "ConnectRetryInterval": "15",
             }
         )
 
