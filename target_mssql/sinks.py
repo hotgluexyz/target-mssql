@@ -28,13 +28,6 @@ import subprocess
 import collections
 import hashlib
 
-# Only pre-login / connect-establishment failures.
-_BCP_RETRYABLE_ERRORS = (
-    "login timeout",
-    "unable to complete login process",
-    "server is not found or not accessible",
-)
-
 class StringTruncationError(Exception):
     """Raised when data exceeds the target column's string length (SQL State 22001)."""
 
@@ -60,15 +53,15 @@ def _is_string_truncation_error(text: str) -> bool:
 
 
 def _is_retryable_bcp_connection_error(text: str) -> bool:
-    """Return True if BCP failed before any rows could have been loaded.
-    """
-    if not text or not text.strip():
-        return False
-    if "Login failed" in text:
-        return False
-    if "Starting copy" in text:
-        return False
-    return any(err in text.lower() for err in _BCP_RETRYABLE_ERRORS)
+    """True if BCP failed before any rows could have been loaded."""
+    return bool(text) and "Starting copy" not in text and any(
+        e in text.lower()
+        for e in (
+            "login timeout",
+            "unable to complete login process",
+            "server is not found or not accessible",
+        )
+    )
 
 class mssqlSink(SQLSink):
     """mssql target sink class."""
@@ -257,7 +250,6 @@ class mssqlSink(SQLSink):
         for attempt in range(1, CONNECTION_MAX_RETRIES + 1):
             if os.path.exists("error_log.txt"):
                 os.remove("error_log.txt")
-
             if attempt > 1:
                 self.logger.info(
                     f"Retrying BCP (attempt {attempt}/{CONNECTION_MAX_RETRIES}) "
@@ -265,34 +257,25 @@ class mssqlSink(SQLSink):
                 )
                 time.sleep(CONNECTION_RETRY_DELAY_SECONDS)
 
-            result = subprocess.run(
-                bcp_cmd,
-                shell=True, capture_output=True, text=True
-            )
-            bcp_output = "\n".join(
-                part for part in (result.stdout, result.stderr) if part
-            )
+            result = subprocess.run(bcp_cmd, shell=True, capture_output=True, text=True)
+            bcp_output = "\n".join(p for p in (result.stdout, result.stderr) if p)
 
             if result.stdout:
                 self.logger.info(
-                    "BCP bulk copy started."
-                    if "Starting copy" in result.stdout
-                    else result.stdout
+                    "BCP bulk copy started." if "Starting copy" in result.stdout else result.stdout
                 )
 
             if "Login failed" in bcp_output:
                 raise Exception(bcp_output)
+            if not _is_retryable_bcp_connection_error(bcp_output):
+                break
 
-            if _is_retryable_bcp_connection_error(bcp_output):
-                self.logger.warning(
-                    f"BCP connection failure on attempt {attempt}/{CONNECTION_MAX_RETRIES}: "
-                    f"{bcp_output[:500]}"
-                )
-                if attempt < CONNECTION_MAX_RETRIES:
-                    continue
+            self.logger.warning(
+                f"BCP connection failure on attempt {attempt}/{CONNECTION_MAX_RETRIES}: "
+                f"{bcp_output[:500]}"
+            )
+            if attempt == CONNECTION_MAX_RETRIES:
                 raise Exception(bcp_output)
-
-            break
 
         # if error_log.txt exists and has data, read it and raise an error
         if os.path.exists("error_log.txt"):
