@@ -229,6 +229,7 @@ class mssqlSink(SQLSink):
         database = self.config.get("database")
         db_schema = full_table_name.split(".")[0] if "." in full_table_name else "dbo"
         table_name = full_table_name.split(".")[-1]
+        error_log_path = f"error_log_{table_name}.txt"
         host = self.config.get("host")
         user = self.config.get("user")
         password = self.config.get("password")
@@ -241,15 +242,15 @@ class mssqlSink(SQLSink):
 
         bcp = "/opt/mssql-tools/bin/bcp" if os.environ.get("JOB_ROOT") else "bcp"
         db = f'"[{database}].[{db_schema}].[{table_name}]"'
-        bcp_flags = f'-S "{host},{port}" -c -t"\t" -l {LOGIN_TIMEOUT_SECONDS} -e "error_log.txt"'
+        bcp_flags = f'-S "{host},{port}" -c -t"\t" -l {LOGIN_TIMEOUT_SECONDS} -e "{error_log_path}"'
         bcp_cmd = f'{bcp} {db} in {table_name}.csv -U "{user}" -P "{password}" {bcp_flags}'
         bcp_log = f'{bcp} {db} in {table_name}.csv -U "[user]" -P "[password]" {bcp_flags}'
         self.logger.info(f"BCP Command: {bcp_log}")
 
         result = None
         for attempt in range(1, CONNECTION_MAX_RETRIES + 1):
-            if os.path.exists("error_log.txt"):
-                os.remove("error_log.txt")
+            if os.path.exists(error_log_path):
+                os.remove(error_log_path)
             if attempt > 1:
                 self.logger.info(
                     f"Retrying BCP (attempt {attempt}/{CONNECTION_MAX_RETRIES}) "
@@ -277,9 +278,8 @@ class mssqlSink(SQLSink):
             if attempt == CONNECTION_MAX_RETRIES:
                 raise Exception(bcp_output)
 
-        # if error_log.txt exists and has data, read it and raise an error
-        if os.path.exists("error_log.txt"):
-            with open("error_log.txt", "r") as f:
+        if os.path.exists(error_log_path):
+            with open(error_log_path, "r") as f:
                 error_log = f.read()
             if error_log:
                 if _is_string_truncation_error(error_log):
