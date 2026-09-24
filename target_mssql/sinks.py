@@ -222,9 +222,12 @@ class mssqlSink(SQLSink):
 
             insert_records.append(insert_record)
 
-        for db_column in missing_db_columns:
+        if missing_db_columns:
+            # keeping db column order for a stable, readable log message
+            missing_columns = [col for col in default_column_order if col in missing_db_columns]
             self.logger.info(
-                f"Column {db_column} exists in table {full_table_name} but missing in singer SCHEMA, user must have deselected this column")
+                f"{len(missing_columns)} column(s) exist in table {full_table_name} but are missing in singer SCHEMA, "
+                f"user must have deselected them: {', '.join(missing_columns)}")
 
         database = self.config.get("database")
         db_schema = full_table_name.split(".")[0] if "." in full_table_name else "dbo"
